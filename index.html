@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Homestead Paving Co. — Field Forms</title>
+<style>
+  :root{
+    --ink:#1c1f23; --slab:#2e3440; --concrete:#eceae6; --card:#fff;
+    --line:#d6d2cb; --accent:#e8a020; --good:#2e7d4f; --muted:#6b6f76; --blue:#33507a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{font-family:"Segoe UI",Roboto,system-ui,sans-serif;background:var(--concrete);color:var(--ink);font-size:17px;min-height:100vh}
+  header{background:var(--slab);color:#fff;padding:26px 18px 22px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+  .eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{font-size:24px;font-weight:700;margin-top:4px}
+  main{max-width:560px;margin:0 auto;padding:22px 14px 60px}
+  a.tile{
+    display:flex;align-items:center;gap:16px;background:var(--card);
+    border:1px solid var(--line);border-left:6px solid var(--accent);
+    border-radius:12px;padding:20px 18px;margin-bottom:14px;
+    text-decoration:none;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.06);
+  }
+  a.tile:active{background:#f6f4f0}
+  a.tile.co{border-left-color:var(--blue)}
+  a.tile.gen{border-left-color:var(--good)}
+  .t-icon{font-size:30px;flex:none;width:44px;text-align:center}
+  .t-name{font-weight:800;font-size:18px}
+  .t-sub{font-size:14px;color:var(--muted);margin-top:3px;line-height:1.35}
+  .arrow{margin-left:auto;font-size:24px;color:var(--muted)}
+  .foot{text-align:center;color:var(--muted);font-size:13px;margin-top:26px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <div class="eyebrow">Homestead Paving Co.</div>
+  <h1>Field Forms</h1>
+</header>
+<main>
+  <a class="tile" href="HPC_DailyQuantities_Universal.html">
+    <div class="t-icon">&#128203;</div>
+    <div>
+      <div class="t-name">Daily Quantities</div>
+      <div class="t-sub">Foremen — report today's quantities, concrete, forming &amp; extra work</div>
+    </div>
+    <div class="arrow">&rsaquo;</div>
+  </a>
+  <a class="tile co" href="HPC_ChangeOrders_Office.html">
+    <div class="t-icon">&#128221;</div>
+    <div>
+      <div class="t-name">Change Orders — Office</div>
+      <div class="t-sub">PMs — work extra-work flags through the CO pipeline</div>
+    </div>
+    <div class="arrow">&rsaquo;</div>
+  </a>
+  <a class="tile gen" href="HPC_ChangeOrder_Generator.html">
+    <div class="t-icon">&#128196;</div>
+    <div>
+      <div class="t-name">Change Order Generator</div>
+      <div class="t-sub">Printable CO documents for anything not field-originated</div>
+    </div>
+    <div class="arrow">&rsaquo;</div>
+  </a>
+  <div class="foot">
+    Tip: in Chrome, use menu &rarr; <b>Add to Home screen</b> on the tablets.<br>
+    Forms keep working offline; saved days upload when back in signal.
+  </div>
+</main>
+<script>
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(function(){});
+}
+</script>
+</body>
+</html>

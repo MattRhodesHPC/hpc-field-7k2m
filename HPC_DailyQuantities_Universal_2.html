@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:mso="urn:schemas-microsoft-com:office:office" xmlns:msdt="uuid:C2F41010-65B3-11d1-A29F-00AA00C14882">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Daily Quantities</title>
+<!--
+  HOMESTEAD PAVING CO. — UNIVERSAL DAILY QUANTITY FORM (EN / ES / PT)
+  ===================================================================
+  ONE file for ALL jobs. Scope items come from the "Job Items"
+  SharePoint List — the foreman just picks the job number.
+  Language selector (globe menu in header) switches the interface
+  between English, Español, and Português. NOTE: item names come from
+  the Job Items list and are shown as entered there; data uploaded to
+  the office lists is always recorded in English for consistency.
+
+  SETUP (SharePoint + Power Automate version):
+   1. Create the SharePoint Lists described in the setup guide
+      (Job Items, Daily Quantities, Change Order Log, Clients).
+   2. Build the ONE "HPC SharePoint Bridge" Power Automate flow
+      (HTTP trigger -> key check -> Send HTTP request to SharePoint
+      -> Response). See the setup guide for exact steps.
+   3. Paste the flow's HTTP POST URL into CONFIG.flowUrl below and
+      the same secret you put in the flow into CONFIG.apiKey.
+  Those are the only edits this file ever needs.
+-->
+<style>
+  :root{
+    --ink:#1c1f23; --slab:#2e3440; --concrete:#eceae6; --card:#fff;
+    --line:#d6d2cb; --accent:#e8a020; --good:#2e7d4f; --muted:#6b6f76; --danger:#b3402a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{font-family:"Segoe UI",Roboto,system-ui,sans-serif;background:var(--concrete);color:var(--ink);font-size:17px}
+  header{background:var(--slab);color:#fff;padding:14px 16px 12px;position:sticky;top:0;z-index:20;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+  .job-eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{font-size:21px;font-weight:700}
+  .chip{
+    display:inline-flex;align-items:center;gap:7px;margin-top:8px;
+    font-size:13px;font-weight:700;border-radius:20px;padding:5px 12px;
+    background:rgba(255,255,255,.12);color:#fff;cursor:pointer;border:none;
+  }
+  .sync-dot{width:9px;height:9px;border-radius:50%;background:var(--good)}
+  .chip.pending .sync-dot{background:var(--accent)}
+  .chip.offline .sync-dot{background:var(--danger)}
+  .lang-chip{padding:3px 8px}
+  .lang-chip select{
+    background:transparent;border:none;color:#fff;font-weight:700;font-size:13px;
+    font-family:inherit;cursor:pointer;padding:2px;
+  }
+  .lang-chip select option{color:var(--ink)}
+  .tabs{display:flex;gap:8px;margin-top:10px}
+  .tab{flex:1;border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;padding:10px 8px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
+  .tab.active{background:var(--accent);border-color:var(--accent);color:var(--ink)}
+  main{max-width:860px;margin:0 auto;padding:14px 12px 120px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+  label{display:block;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px}
+  input[type=date],input[type=text],textarea{width:100%;padding:12px;font-size:17px;border:1.5px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+  input:focus,textarea:focus,select:focus{outline:3px solid rgba(232,160,32,.4);border-color:var(--accent)}
+  .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:560px){.meta-grid{grid-template-columns:1fr}}
+  .section-head{display:flex;align-items:center;gap:10px;margin:18px 4px 8px}
+  .section-head h2{font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--slab)}
+  .section-head .rule{flex:1;height:2px;background:var(--line)}
+  .unit-chip{font-size:12px;font-weight:700;background:var(--slab);color:#fff;border-radius:5px;padding:3px 8px}
+  .item{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:8px;display:grid;grid-template-columns:1fr 132px;gap:12px;align-items:center}
+  .item.has-qty{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,160,32,.25)}
+  .item-name{font-weight:600;font-size:16.5px;line-height:1.3}
+  .item-sub{font-size:13px;color:var(--muted);margin-top:3px}
+  .item-sub b{color:var(--ink)}
+  .bar{height:5px;background:var(--line);border-radius:3px;margin-top:7px;overflow:hidden}
+  .bar > span{display:block;height:100%;background:var(--good);border-radius:3px}
+  .bar > span.over{background:var(--danger)}
+  .qty-wrap{position:relative}
+  .qty{width:100%;padding:14px 10px;font-size:22px;font-weight:700;text-align:right;border:1.5px solid var(--line);border-radius:8px;background:#fafaf8}
+  .qty::placeholder{color:#c2bfb8;font-weight:400}
+  .qty-unit{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;color:var(--muted);pointer-events:none}
+  .savebar{position:fixed;bottom:0;left:0;right:0;z-index:30;background:rgba(46,52,64,.97);padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;gap:12px;align-items:center;justify-content:space-between}
+  .save-summary{color:#fff;font-size:14px;line-height:1.35}
+  .save-summary b{color:var(--accent)}
+  .btn{border:none;border-radius:9px;padding:14px 26px;font-size:17px;font-weight:800;cursor:pointer}
+  .btn-primary{background:var(--accent);color:var(--ink)}
+  .btn-primary:disabled{opacity:.45}
+  .btn-small{background:var(--slab);color:#fff;padding:10px 14px;font-size:14px;font-weight:700;border:none;border-radius:8px;cursor:pointer}
+  .btn-danger{background:transparent;color:var(--danger);border:1.5px solid var(--danger);padding:9px 14px;font-size:14px;font-weight:700;border-radius:8px;cursor:pointer}
+  .toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:99;background:var(--good);color:#fff;font-weight:700;padding:12px 22px;border-radius:9px;box-shadow:0 4px 14px rgba(0,0,0,.3);opacity:0;transition:opacity .25s;pointer-events:none;font-size:16px;max-width:92vw;text-align:center}
+  .toast.show{opacity:1}
+  .toast.err{background:var(--danger)}
+  .toast.warn{background:#a86a00}
+  .day-row,.job-row{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer}
+  .day-row:active,.job-row:active{background:#f6f4f0}
+  .day-date,.job-title{font-weight:800;font-size:17px}
+  .day-meta{font-size:13.5px;color:var(--muted);margin-top:2px}
+  .job-num{font-size:13px;font-weight:800;background:var(--slab);color:#fff;border-radius:6px;padding:6px 10px;min-width:44px;text-align:center}
+  .sync-tag{font-size:12px;font-weight:800;border-radius:5px;padding:3px 8px}
+  .sync-tag.up{background:#e3f1e8;color:var(--good)}
+  .sync-tag.wait{background:#fdf3e0;color:#7a4d00}
+  .sync-tag.form{background:#e8ecf4;color:#33507a}
+  .sync-tag.extra{background:#fbeae5;color:var(--danger)}
+  .empty{text-align:center;color:var(--muted);padding:40px 20px;font-size:16px}
+  .progress-table{width:100%;border-collapse:collapse;font-size:14.5px}
+  .progress-table th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:2px solid var(--line);padding:8px 6px}
+  .progress-table td{padding:9px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pct{font-weight:700}
+  .pct.done{color:var(--good)}
+  .filter-wrap{margin-bottom:10px}
+  .detail-back{margin-bottom:12px}
+  .hidden{display:none}
+  .note-block{white-space:pre-wrap;font-size:15px;background:#faf8f4;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px}
+  .tools{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .warn-banner{background:#fdf3e0;border:1.5px solid var(--accent);color:#7a4d00;border-radius:10px;padding:12px 14px;font-size:14.5px;margin-bottom:12px}
+  .jobs-updated{font-size:13px;color:var(--muted);text-align:center;margin:6px 0 12px}
+  .forming-toggle{
+    display:flex;align-items:center;gap:12px;margin-top:12px;
+    background:#faf8f4;border:1.5px solid var(--line);border-radius:8px;
+    padding:12px;cursor:pointer;user-select:none;
+  }
+  .forming-toggle.on{border-color:var(--accent);background:#fdf3e0;box-shadow:0 0 0 2px rgba(232,160,32,.25)}
+  .forming-box{
+    width:26px;height:26px;border:2px solid var(--muted);border-radius:6px;flex:none;
+    display:flex;align-items:center;justify-content:center;background:#fff;
+    font-size:18px;font-weight:900;color:#fff;
+  }
+  .forming-toggle.on .forming-box{background:var(--accent);border-color:var(--accent);color:var(--ink)}
+  .extra-toggle.on{border-color:var(--danger);background:#fbeae5;box-shadow:0 0 0 2px rgba(179,64,42,.2)}
+  .extra-toggle.on .forming-box{background:var(--danger);border-color:var(--danger);color:#fff}
+  .forming-label{font-weight:700;font-size:16px}
+  .forming-sub{font-size:13px;color:var(--muted);margin-top:2px}
+  .pour-block{margin-top:12px}
+  .pour-row{display:grid;grid-template-columns:1fr 110px 44px;gap:8px;margin-bottom:8px;align-items:center}
+  .pour-row select{
+    width:100%;padding:12px;font-size:16px;border:1.5px solid var(--line);border-radius:8px;
+    background:#fff;color:var(--ink);appearance:auto;
+  }
+  .pour-cy{
+    width:100%;padding:12px 10px;font-size:18px;font-weight:700;text-align:right;
+    border:1.5px solid var(--line);border-radius:8px;background:#fafaf8;
+  }
+  .pour-remove{
+    width:44px;height:44px;border:1.5px solid var(--line);border-radius:8px;background:#fff;
+    color:var(--danger);font-size:20px;font-weight:800;cursor:pointer;
+  }
+  .pour-add{
+    background:none;border:none;color:#33507a;font-weight:700;font-size:14.5px;
+    cursor:pointer;padding:6px 2px;text-decoration:underline;
+  }
+  .cy-hint{position:relative}
+  .cy-hint::after{
+    content:"CY";position:absolute;left:10px;top:50%;transform:translateY(-50%);
+    font-size:12px;font-weight:700;color:var(--muted);pointer-events:none;
+  }
+</style>
+
+<!--[if gte mso 9]><xml>
+<mso:CustomDocumentProperties>
+<mso:xd_Signature msdt:dt="string"></mso:xd_Signature>
+<mso:display_urn_x003a_schemas-microsoft-com_x003a_office_x003a_office_x0023_Editor msdt:dt="string">Matt Rhodes (Homestead Paving)</mso:display_urn_x003a_schemas-microsoft-com_x003a_office_x003a_office_x0023_Editor>
+<mso:xd_ProgID msdt:dt="string"></mso:xd_ProgID>
+<mso:_ExtendedDescription msdt:dt="string"></mso:_ExtendedDescription>
+<mso:display_urn_x003a_schemas-microsoft-com_x003a_office_x003a_office_x0023_Author msdt:dt="string">Matt Rhodes (Homestead Paving)</mso:display_urn_x003a_schemas-microsoft-com_x003a_office_x003a_office_x0023_Author>
+<mso:ComplianceAssetId msdt:dt="string"></mso:ComplianceAssetId>
+<mso:TemplateUrl msdt:dt="string"></mso:TemplateUrl>
+<mso:ContentTypeId msdt:dt="string">0x010100E0DC5FF75366D24991F5FA45AF5B2868</mso:ContentTypeId>
+<mso:TriggerFlowInfo msdt:dt="string"></mso:TriggerFlowInfo>
+<mso:_SourceUrl msdt:dt="string"></mso:_SourceUrl>
+<mso:_SharedFileIndex msdt:dt="string"></mso:_SharedFileIndex>
+</mso:CustomDocumentProperties>
+</xml><![endif]-->
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="job-eyebrow">Homestead Paving Co.</div>
+    <h1 id="hdrJob">Daily Quantities</h1>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="chip" id="jobChip" onclick="showView('jobs')">
+      <span id="jobChipLabel"></span>
+    </button>
+    <button class="chip" id="syncChip" onclick="syncQueue(true)">
+      <span class="sync-dot"></span><span id="syncLabel"></span>
+    </button>
+    <span class="chip lang-chip">🌐
+      <select id="langSelect" onchange="setLang(this.value)">
+        <option value="en">English</option>
+        <option value="es">Español</option>
+        <option value="pt">Português</option>
+      </select>
+    </span>
+  </div>
+  <div class="tabs" id="mainTabs">
+    <button class="tab active" id="tabEntry" onclick="showView('entry')"></button>
+    <button class="tab" id="tabHistory" onclick="showView('history')"></button>
+    <button class="tab" id="tabProgress" onclick="showView('progress')"></button>
+  </div>
+</header>
+
+<div class="toast" id="toast"></div>
+
+<main>
+  <div class="warn-banner hidden" id="configWarn"></div>
+  <div class="warn-banner hidden" id="storageWarn"></div>
+
+  <!-- JOB PICKER -->
+  <section id="viewJobs">
+    <div class="jobs-updated" id="jobsUpdated"></div>
+    <div id="jobList"></div>
+    <div class="tools" style="justify-content:center">
+      <button class="btn-small" id="btnRefreshJobs" onclick="refreshJobs(true)"></button>
+    </div>
+  </section>
+
+  <!-- ENTRY -->
+  <section id="viewEntry" class="hidden">
+    <div class="card">
+      <div class="meta-grid">
+        <div><label for="fDate" id="lblDate"></label><input type="date" id="fDate"></div>
+        <div><label for="fForeman" id="lblForeman"></label><input type="text" id="fForeman" autocomplete="off"></div>
+      </div>
+      <div style="margin-top:12px">
+        <label for="fNotes" id="lblNotes"></label>
+        <textarea id="fNotes" rows="2"></textarea>
+      </div>
+      <div class="pour-block">
+        <label id="lblPour"></label>
+        <div id="pourRows"></div>
+        <button class="pour-add" id="pourAddBtn" onclick="addPour()"></button>
+      </div>
+      <div class="forming-toggle" id="formingToggle" onclick="toggleForming()">
+        <div class="forming-box" id="formingBox"></div>
+        <div>
+          <div class="forming-label" id="lblFormingT"></div>
+          <div class="forming-sub" id="lblFormingS"></div>
+        </div>
+      </div>
+      <div class="forming-toggle extra-toggle" id="extraToggle" onclick="toggleExtra()">
+        <div class="forming-box" id="extraBox"></div>
+        <div>
+          <div class="forming-label" id="lblExtraT"></div>
+          <div class="forming-sub" id="lblExtraS"></div>
+        </div>
+      </div>
+    </div>
+    <div class="filter-wrap card" style="padding:10px 14px">
+      <input type="text" id="fFilter" oninput="renderItems()">
+    </div>
+    <div id="itemList"></div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="viewHistory" class="hidden">
+    <div id="historyList"></div>
+    <div class="tools">
+      <button class="btn-small" id="btnSync" onclick="syncQueue(true)"></button>
+      <button class="btn-small" id="btnExport" onclick="exportCSV()"></button>
+      <button class="btn-small" id="btnBackup" onclick="exportBackup()"></button>
+      <button class="btn-small" id="btnRestore" onclick="document.getElementById('restoreFile').click()"></button>
+      <input type="file" id="restoreFile" accept=".json" class="hidden" onchange="restoreBackup(this)">
+    </div>
+  </section>
+
+  <!-- DAY DETAIL -->
+  <section id="viewDetail" class="hidden">
+    <button class="btn-small detail-back" id="btnBack" onclick="showView('history')"></button>
+    <div id="detailBody"></div>
+  </section>
+
+  <!-- PROGRESS -->
+  <section id="viewProgress" class="hidden">
+    <div class="card" id="progressBody"></div>
+  </section>
+</main>
+
+<div class="savebar hidden" id="savebar">
+  <div class="save-summary" id="saveSummary"></div>
+  <button class="btn btn-primary" id="btnSave" onclick="saveDay()" disabled></button>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIG — SharePoint + Power Automate version.
+   Paste the flow's HTTP POST URL and your secret key between the
+   quotes. These are the ONLY things to edit in this file, ever.
+   ===================================================================== */
+const CONFIG = {
+  flowUrl: "https://default7255d6425eff4581966d707a3a5308.22.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/07/workflows/6f19392f03c34c24a5a3485c3286d98a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=oLQKpOyfLejIdVbMRtFRyxGNVm0b9n0vKEliznamO84",   // <-- PASTE THE "HPC SharePoint Bridge" FLOW HTTP POST URL HERE
+  apiKey:  "Princeton",   // <-- PASTE THE SAME SECRET KEY YOU PUT IN THE FLOW
+  lists: {       // SharePoint list names (match your existing lists)
+    items:     "JobItems",
+    daily:     "DailyQuantities",
+    co:        "ChangeOrderLog",
+    jobs:      "Jobs",
+    suppliers: "Suppliers"
+  }
+};
+/* ===================================================================== */
+
+/* ---------- SharePoint bridge helpers (shared across HPC files) ---------- */
+function spConfigured(){ return !!(CONFIG.flowUrl && CONFIG.apiKey); }
+async function sp(method, uri, body){
+  const res = await fetch(CONFIG.flowUrl, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" }, // avoids CORS preflight
+    body: JSON.stringify({
+      key: CONFIG.apiKey,
+      method: method,
+      uri: uri,
+      body: body ? JSON.stringify(body) : ""
+    })
+  });
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : {};
+  if(data && data.ok === false) throw new Error(data.error || "Bridge error");
+  return data;
+}
+function spList(listTitle){
+  return "_api/web/lists/getbytitle('" + encodeURIComponent(listTitle) + "')";
+}
+function spQuote(v){ return String(v).replace(/'/g, "''"); }
+async function spGetAll(listTitle, query){
+  let uri = spList(listTitle) + "/items?" + query;
+  let out = [];
+  for(let guard = 0; uri && guard < 50; guard++){
+    const data = await sp("GET", uri);
+    out = out.concat(data.value || []);
+    let next = data["odata.nextLink"] || data["@odata.nextLink"] || null;
+    if(next){ const i = next.indexOf("_api/"); uri = i >= 0 ? next.slice(i) : null; }
+    else uri = null;
+  }
+  return out;
+}
+async function spCreate(listTitle, fields){
+  return sp("POST", spList(listTitle) + "/items", fields);
+}
+async function spRecycle(listTitle, id){
+  return sp("POST", spList(listTitle) + "/items(" + id + ")/recycle", null);
+}
+/* ------------------------------------------------------------------------ */
+
+/* =====================================================================
+   TRANSLATIONS — interface text in English / Spanish / Portuguese.
+   Item names come from the Job Items tab and are shown as entered.
+   Data uploaded to the office list is ALWAYS recorded in English.
+   ===================================================================== */
+const I18N = {
+en:{ locale:"en-US",
+  tabToday:"Today's Sheet", tabSaved:"Saved Days", tabProgress:"Job Progress",
+  chooseJob:"Choose job", changeJob:"Job #{n} · change",
+  checking:"Checking…", allUploaded:"All uploaded", setupNeeded:"Setup needed",
+  waitingTap:"{n} day(s) waiting — tap to sync", queuedOffline:"{n} day(s) queued (offline)", uploadingLbl:"Uploading…",
+  configWarn:"<b>Setup needed:</b> the office connection hasn't been added yet. Open this file in a text editor and paste the Power Automate flow URL and key into <code>CONFIG.flowUrl</code> / <code>CONFIG.apiKey</code> (see the setup guide).",
+  storageWarn:"Heads up: this browser is blocking local storage, so saved days won't survive closing the tab. Open this file in Chrome from the tablet's Downloads folder for full saving.",
+  loadingJobs:"Loading jobs…", refreshJobs:"Refresh job list",
+  jobsFrom:"Job list from the office Job Items list in SharePoint · last loaded {d}",
+  noJobsYet:"No jobs found yet.<br>Ask the office to add line items to the \u201CJob Items\u201D list in SharePoint, then tap Refresh.",
+  noJobsSetup:"Setup needed — the office connection hasn't been added to this file yet.",
+  scopeItems:"{n} scope items",
+  lblDate:"Work date", lblForeman:"Foreman", namePh:"Name",
+  lblNotes:"Notes / location (optional)", notesPh:"Area worked, weather, issues…",
+  lblPour:"Concrete poured today", supplierPh:"Supplier…", addSupplier:"+ Add another supplier",
+  formingT:"Forming / prepping for a pour",
+  formingS:"Mark this if the day was spent forming — no quantity needed. Use notes for what's being formed.",
+  extraT:"Extra work — not in scope",
+  extraS:"Mark this if work was done that isn't on the item list. The office will follow up for details — notes help but aren't required.",
+  filterPh:"Filter items… (e.g. curb, sidewalk)",
+  toDate:"<b>{t}</b> of {c} {u} to date · {r} remaining", noMatch:"No items match that filter.",
+  noQty:"No quantities entered yet", nItems:"<b>{n}</b> item(s)", cyPoured:"<b>{x} CY</b> poured",
+  formingDay:"<b>forming day</b>", extraWorkLbl:"<b>extra work</b>", forWord:"for", saveDay:"Save Day",
+  pickDate:"Pick a work date first", finishPour:"Finish the concrete entry — each needs a supplier and CY",
+  enterSomething:"Enter quantities, concrete poured, or mark forming/extra work",
+  alreadySaved:"A sheet for {d} on this job is already saved on this tablet. Replace it?",
+  savedUploading:"Saved on tablet — uploading…", cantSave:"Couldn't save — browser storage is blocked",
+  daysUploaded:"{n} day(s) uploaded to the office list", cantReach:"Couldn't reach the office — will retry when online",
+  everythingUp:"Everything is uploaded", addUrlFirst:"Add the flow URL + key first (see setup guide)", pickJobFirst:"Pick a job first",
+  tagUp:"Uploaded", tagWait:"Waiting to upload", tagForming:"Forming", tagExtra:"Extra work",
+  noSavedDays:"No saved days yet for this job on this tablet.<br>Fill out today's sheet and tap Save Day.",
+  itemsReported:"{n} item(s)", cyShort:"{x} CY poured", formingShort:"forming", extraShort:"extra work", noQtyShort:"No quantities",
+  syncNow:"Sync now", exportCSV:"Export CSV", backup:"Backup (JSON)", restoreBtn:"Restore backup",
+  back:"\u2190 Back to saved days", foremanPre:"Foreman: ", noForeman:"No foreman recorded",
+  upToSheet:"Uploaded to office list", notUp:"Not uploaded yet", formingDetail:"Forming / prep day", extraDetail:"Extra work flagged",
+  thItem:"Item", thQty:"Qty", thUnit:"Unit", noQtySheet:"No quantities on this sheet.",
+  editDay:"Edit this day", delDay:"Delete this day",
+  confirmDel:"Delete the sheet for {d}? This also clears it from the office list. This can't be undone.",
+  delWarn:"Removed here; couldn't reach the office list — remove those rows there manually", deleted:"Deleted {d}",
+  progressNote:"Job #{n} — totals from days saved on this tablet. The office SharePoint list combines all tablets.",
+  progressLoading:"Loading combined totals…",
+  progressOffice:"Job #{n} — combined totals from all tablets (office list), loaded {d}.",
+  progressLocal:"Job #{n} — couldn't reach the office list; showing days saved on this tablet only.",
+  thToDate:"To date", thContract:"Contract", thPct:"%",
+  nothingExport:"Nothing to export yet", backupDl:"Backup downloaded",
+  restored:"Restored {n} day(s)", badBackup:"That file isn't a valid backup",
+  backupWrongJob:"This backup is for Job #{a} but Job #{b} is open. Restore anyway into the current job?",
+  jobsUpdatedT:"Job list updated", cantReadJobs:"Couldn't read the job list",
+  usingSavedJobs:"Couldn't reach the office — using saved job list"
+},
+es:{ locale:"es",
+  tabToday:"Hoja de hoy", tabSaved:"Días guardados", tabProgress:"Avance de obra",
+  chooseJob:"Elegir obra", changeJob:"Obra #{n} · cambiar",
+  checking:"Verificando…", allUploaded:"Todo enviado", setupNeeded:"Falta configurar",
+  waitingTap:"{n} día(s) pendiente(s) — toque para enviar", queuedOffline:"{n} día(s) en cola (sin conexión)", uploadingLbl:"Enviando…",
+  configWarn:"<b>Falta configurar:</b> aún no se agregó la conexión con la oficina. Abra este archivo en un editor de texto y pegue la URL del flujo de Power Automate y la clave en <code>CONFIG.flowUrl</code> / <code>CONFIG.apiKey</code> (vea la guía de configuración).",
+  storageWarn:"Atención: este navegador bloquea el almacenamiento local, por lo que los días guardados no se conservarán al cerrar la pestaña. Abra este archivo en Chrome desde la carpeta de Descargas de la tableta.",
+  loadingJobs:"Cargando obras…", refreshJobs:"Actualizar lista de obras",
+  jobsFrom:"Lista de obras de la lista de la oficina · actualizada {d}",
+  noJobsYet:"Aún no hay obras.<br>Pida a la oficina que agregue partidas a la lista \u201CJob Items\u201D en SharePoint y toque Actualizar.",
+  noJobsSetup:"Falta configurar — aún no se agregó la conexión con la oficina a este archivo.",
+  scopeItems:"{n} partidas",
+  lblDate:"Fecha de trabajo", lblForeman:"Capataz", namePh:"Nombre",
+  lblNotes:"Notas / ubicación (opcional)", notesPh:"Área trabajada, clima, problemas…",
+  lblPour:"Concreto vaciado hoy", supplierPh:"Proveedor…", addSupplier:"+ Agregar otro proveedor",
+  formingT:"Encofrado / preparando un vaciado",
+  formingS:"Marque si el día se dedicó a encofrar — no requiere cantidad. Use las notas para indicar qué se está encofrando.",
+  extraT:"Trabajo extra — fuera de contrato",
+  extraS:"Marque si se hizo trabajo que no está en la lista. La oficina pedirá los detalles — las notas ayudan pero no son obligatorias.",
+  filterPh:"Filtrar partidas… (ej. curb, sidewalk)",
+  toDate:"<b>{t}</b> de {c} {u} a la fecha · faltan {r}", noMatch:"Ninguna partida coincide con el filtro.",
+  noQty:"Aún no hay cantidades", nItems:"<b>{n}</b> partida(s)", cyPoured:"<b>{x} CY</b> vaciados",
+  formingDay:"<b>día de encofrado</b>", extraWorkLbl:"<b>trabajo extra</b>", forWord:"para", saveDay:"Guardar día",
+  pickDate:"Seleccione la fecha primero", finishPour:"Complete el concreto — cada línea necesita proveedor y CY",
+  enterSomething:"Ingrese cantidades, concreto vaciado, o marque encofrado/trabajo extra",
+  alreadySaved:"Ya existe una hoja del {d} para esta obra en esta tableta. ¿Reemplazarla?",
+  savedUploading:"Guardado en la tableta — enviando…", cantSave:"No se pudo guardar — el navegador bloquea el almacenamiento",
+  daysUploaded:"{n} día(s) enviado(s) a la lista de la oficina", cantReach:"No se pudo conectar con la oficina — se reintentará al tener conexión",
+  everythingUp:"Todo está enviado", addUrlFirst:"Agregue primero la URL del flujo y la clave (vea la guía)", pickJobFirst:"Elija una obra primero",
+  tagUp:"Enviado", tagWait:"Pendiente de envío", tagForming:"Encofrado", tagExtra:"Trabajo extra",
+  noSavedDays:"Aún no hay días guardados para esta obra en esta tableta.<br>Complete la hoja de hoy y toque Guardar día.",
+  itemsReported:"{n} partida(s)", cyShort:"{x} CY vaciados", formingShort:"encofrado", extraShort:"trabajo extra", noQtyShort:"Sin cantidades",
+  syncNow:"Enviar ahora", exportCSV:"Exportar CSV", backup:"Copia (JSON)", restoreBtn:"Restaurar copia",
+  back:"\u2190 Volver a días guardados", foremanPre:"Capataz: ", noForeman:"Sin capataz registrado",
+  upToSheet:"Enviado a la lista de la oficina", notUp:"Aún no enviado", formingDetail:"Día de encofrado", extraDetail:"Trabajo extra marcado",
+  thItem:"Partida", thQty:"Cant.", thUnit:"Unidad", noQtySheet:"Sin cantidades en esta hoja.",
+  editDay:"Editar este día", delDay:"Eliminar este día",
+  confirmDel:"¿Eliminar la hoja del {d}? También se borrará de la lista de la oficina. No se puede deshacer.",
+  delWarn:"Se eliminó aquí; sin conexión con la lista de la oficina — borre esas filas manualmente", deleted:"Eliminado {d}",
+  progressNote:"Obra #{n} — totales de los días guardados en esta tableta. La lista de SharePoint de la oficina combina todas las tabletas.",
+  progressLoading:"Cargando totales combinados…",
+  progressOffice:"Obra #{n} — totales combinados de todas las tabletas (lista de la oficina), cargados {d}.",
+  progressLocal:"Obra #{n} — sin conexión con la lista de la oficina; mostrando solo los días guardados en esta tableta.",
+  thToDate:"A la fecha", thContract:"Contrato", thPct:"%",
+  nothingExport:"Nada para exportar aún", backupDl:"Copia descargada",
+  restored:"Restaurado(s) {n} día(s)", badBackup:"Ese archivo no es una copia válida",
+  backupWrongJob:"Esta copia es de la Obra #{a} pero la Obra #{b} está abierta. ¿Restaurar de todos modos en la obra actual?",
+  jobsUpdatedT:"Lista de obras actualizada", cantReadJobs:"No se pudo leer la lista de obras",
+  usingSavedJobs:"Sin conexión con la oficina — usando la lista de obras guardada"
+},
+pt:{ locale:"pt-BR",
+  tabToday:"Folha de hoje", tabSaved:"Dias salvos", tabProgress:"Progresso da obra",
+  chooseJob:"Escolher obra", changeJob:"Obra #{n} · trocar",
+  checking:"Verificando…", allUploaded:"Tudo enviado", setupNeeded:"Falta configurar",
+  waitingTap:"{n} dia(s) pendente(s) — toque para enviar", queuedOffline:"{n} dia(s) na fila (sem conexão)", uploadingLbl:"Enviando…",
+  configWarn:"<b>Falta configurar:</b> a conexão com o escritório ainda não foi adicionada. Abra este arquivo em um editor de texto e cole a URL do fluxo do Power Automate e a chave em <code>CONFIG.flowUrl</code> / <code>CONFIG.apiKey</code> (veja o guia de configuração).",
+  storageWarn:"Atenção: este navegador bloqueia o armazenamento local, então os dias salvos não serão mantidos ao fechar a aba. Abra este arquivo no Chrome pela pasta de Downloads do tablet.",
+  loadingJobs:"Carregando obras…", refreshJobs:"Atualizar lista de obras",
+  jobsFrom:"Lista de obras da lista do escritório · atualizada {d}",
+  noJobsYet:"Ainda não há obras.<br>Peça ao escritório para adicionar itens à lista \u201CJob Items\u201D no SharePoint e toque em Atualizar.",
+  noJobsSetup:"Falta configurar — a conexão com o escritório ainda não foi adicionada a este arquivo.",
+  scopeItems:"{n} itens",
+  lblDate:"Data do trabalho", lblForeman:"Encarregado", namePh:"Nome",
+  lblNotes:"Observações / local (opcional)", notesPh:"Área trabalhada, clima, problemas…",
+  lblPour:"Concreto lançado hoje", supplierPh:"Fornecedor…", addSupplier:"+ Adicionar outro fornecedor",
+  formingT:"Formas / preparação para concretagem",
+  formingS:"Marque se o dia foi de montagem de formas — sem quantidade. Use as observações para indicar o que está sendo formado.",
+  extraT:"Trabalho extra — fora do escopo",
+  extraS:"Marque se foi feito trabalho que não está na lista. O escritório pedirá os detalhes — observações ajudam, mas não são obrigatórias.",
+  filterPh:"Filtrar itens… (ex. curb, sidewalk)",
+  toDate:"<b>{t}</b> de {c} {u} até hoje · faltam {r}", noMatch:"Nenhum item corresponde ao filtro.",
+  noQty:"Nenhuma quantidade informada", nItems:"<b>{n}</b> item(ns)", cyPoured:"<b>{x} CY</b> lançados",
+  formingDay:"<b>dia de formas</b>", extraWorkLbl:"<b>trabalho extra</b>", forWord:"para", saveDay:"Salvar dia",
+  pickDate:"Escolha a data primeiro", finishPour:"Complete o concreto — cada linha precisa de fornecedor e CY",
+  enterSomething:"Informe quantidades, concreto lançado, ou marque formas/trabalho extra",
+  alreadySaved:"Já existe uma folha de {d} para esta obra neste tablet. Substituir?",
+  savedUploading:"Salvo no tablet — enviando…", cantSave:"Não foi possível salvar — o navegador bloqueia o armazenamento",
+  daysUploaded:"{n} dia(s) enviado(s) à lista do escritório", cantReach:"Sem conexão com o escritório — tentará novamente quando online",
+  everythingUp:"Tudo enviado", addUrlFirst:"Adicione primeiro a URL do fluxo e a chave (veja o guia)", pickJobFirst:"Escolha uma obra primeiro",
+  tagUp:"Enviado", tagWait:"Aguardando envio", tagForming:"Formas", tagExtra:"Trabalho extra",
+  noSavedDays:"Ainda não há dias salvos para esta obra neste tablet.<br>Preencha a folha de hoje e toque em Salvar dia.",
+  itemsReported:"{n} item(ns)", cyShort:"{x} CY lançados", formingShort:"formas", extraShort:"trabalho extra", noQtyShort:"Sem quantidades",
+  syncNow:"Enviar agora", exportCSV:"Exportar CSV", backup:"Backup (JSON)", restoreBtn:"Restaurar backup",
+  back:"\u2190 Voltar aos dias salvos", foremanPre:"Encarregado: ", noForeman:"Sem encarregado registrado",
+  upToSheet:"Enviado à lista do escritório", notUp:"Ainda não enviado", formingDetail:"Dia de formas", extraDetail:"Trabalho extra sinalizado",
+  thItem:"Item", thQty:"Qtd.", thUnit:"Unid.", noQtySheet:"Sem quantidades nesta folha.",
+  editDay:"Editar este dia", delDay:"Excluir este dia",
+  confirmDel:"Excluir a folha de {d}? Também será removida da lista do escritório. Não pode ser desfeito.",
+  delWarn:"Removido aqui; sem conexão com a lista do escritório — remova essas linhas manualmente", deleted:"Excluído {d}",
+  progressNote:"Obra #{n} — totais dos dias salvos neste tablet. A lista do SharePoint do escritório combina todos os tablets.",
+  progressLoading:"Carregando totais combinados…",
+  progressOffice:"Obra #{n} — totais combinados de todos os tablets (lista do escritório), carregados {d}.",
+  progressLocal:"Obra #{n} — sem conexão com a lista do escritório; mostrando apenas os dias salvos neste tablet.",
+  thToDate:"Até hoje", thContract:"Contrato", thPct:"%",
+  nothingExport:"Nada para exportar ainda", backupDl:"Backup baixado",
+  restored:"Restaurado(s) {n} dia(s)", badBackup:"Esse arquivo não é um backup válido",
+  backupWrongJob:"Este backup é da Obra #{a}, mas a Obra #{b} está aberta. Restaurar mesmo assim na obra atual?",
+  jobsUpdatedT:"Lista de obras atualizada", cantReadJobs:"Não foi possível ler a lista de obras",
+  usingSavedJobs:"Sem conexão com o escritório — usando a lista de obras salva"
+}
+};
+
+const COMPANY = "Homestead Paving Co.";
+const JOBCACHE_KEY = "hpc_jobcache";
+const LASTJOB_KEY  = "hpc_lastjob";
+const DEVICE_KEY   = "hpc_device_id";
+const LANG_KEY     = "hpc_lang";
+// Uploaded row labels — ALWAYS English so office data and the CO Log
+// automation stay consistent regardless of the tablet's language.
+const FORMING_ITEM = "FORMING / PREP DAY";
+const EXTRA_ITEM = "EXTRA WORK — NOT IN SCOPE (office to detail)";
+let SUPPLIERS = ["Ozinga","Cemex","Concrete Max","Kraken","Titan","Maschmeyer","Other"]; // refreshed live from the Suppliers list
+
+let lang = "en";
+let jobs = [], jobsUpdated = null, job = null, ITEMS = [];
+let entered = {}, cumulative = {}, savedDays = [];
+let pours = [], forming = false, extraWork = false;
+let storageOK = true, syncing = false;
+let currentView = "jobs";
+
+// ---------- i18n ----------
+function t(key, vars){
+  let s = (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+  if(vars) for(const k in vars) s = s.split("{"+k+"}").join(vars[k]);
+  return s;
+}
+function setLang(l){
+  lang = I18N[l] ? l : "en";
+  try{ localStorage.setItem(LANG_KEY, lang); }catch(e){}
+  document.documentElement.lang = lang;
+  applyStatic();
+  updateSyncChip();
+  updateJobChip();
+  renderPours();
+  if(currentView==="jobs") renderJobs();
+  if(currentView==="entry") renderItems();
+  if(currentView==="history") renderHistory();
+  if(currentView==="progress") renderProgress();
+  if(currentView==="detail") showView("history"); // detail re-renders from history
+  updateSaveBar();
+}
+function applyStatic(){
+  document.getElementById("tabEntry").textContent = t("tabToday");
+  document.getElementById("tabHistory").textContent = t("tabSaved");
+  document.getElementById("tabProgress").textContent = t("tabProgress");
+  document.getElementById("configWarn").innerHTML = t("configWarn");
+  document.getElementById("storageWarn").innerHTML = t("storageWarn");
+  document.getElementById("btnRefreshJobs").textContent = t("refreshJobs");
+  document.getElementById("lblDate").textContent = t("lblDate");
+  document.getElementById("lblForeman").textContent = t("lblForeman");
+  document.getElementById("fForeman").placeholder = t("namePh");
+  document.getElementById("lblNotes").textContent = t("lblNotes");
+  document.getElementById("fNotes").placeholder = t("notesPh");
+  document.getElementById("lblPour").textContent = t("lblPour");
+  document.getElementById("pourAddBtn").textContent = t("addSupplier");
+  document.getElementById("lblFormingT").textContent = t("formingT");
+  document.getElementById("lblFormingS").textContent = t("formingS");
+  document.getElementById("lblExtraT").textContent = t("extraT");
+  document.getElementById("lblExtraS").textContent = t("extraS");
+  document.getElementById("fFilter").placeholder = t("filterPh");
+  document.getElementById("btnSync").textContent = t("syncNow");
+  document.getElementById("btnExport").textContent = t("exportCSV");
+  document.getElementById("btnBackup").textContent = t("backup");
+  document.getElementById("btnRestore").textContent = t("restoreBtn");
+  document.getElementById("btnBack").textContent = t("back");
+  document.getElementById("btnSave").textContent = t("saveDay");
+}
+function updateJobChip(){
+  document.getElementById("jobChipLabel").textContent =
+    job ? t("changeJob",{n:job.jobNumber}) : t("chooseJob");
+}
+
+// ---------- helpers ----------
+function slug(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,60); }
+function storeKey(){ return "hpc_daily_job_" + job.jobNumber; }
+function deviceId(){
+  try{
+    let id = localStorage.getItem(DEVICE_KEY);
+    if(!id){ id = "T"+Math.random().toString(36).slice(2,8).toUpperCase(); localStorage.setItem(DEVICE_KEY,id); }
+    return id;
+  }catch(e){ return "T0"; }
+}
+function todayISO(){
+  const d=new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+function fmt(n){ return Number(n).toLocaleString(t("locale"),{maximumFractionDigits:2}); }
+function prettyDate(iso){
+  const [y,m,d]=iso.split("-").map(Number);
+  return new Date(y,m-1,d).toLocaleDateString(t("locale"),{weekday:"short",month:"short",day:"numeric",year:"numeric"});
+}
+function toast(msg,kind){
+  const el=document.getElementById("toast");
+  el.textContent=msg; el.className="toast show"+(kind?" "+kind:"");
+  setTimeout(()=>{el.className="toast"+(kind?" "+kind:"");},2800);
+}
+function checkEnvironment(){
+  try{ localStorage.setItem("__hpc_t","1"); localStorage.removeItem("__hpc_t"); }
+  catch(e){ storageOK=false; }
+  document.getElementById("storageWarn").classList.toggle("hidden",storageOK);
+  document.getElementById("configWarn").classList.toggle("hidden",spConfigured());
+}
+
+// ---------- job list: fetch + cache (from the Job Items SharePoint list) ----------
+async function refreshJobs(manual){
+  if(!spConfigured()){ renderJobs(); return; }
+  try{
+    // JobItems internal names: Title=JobNumber, field_1=JobName,
+    // field_2=Section, field_3=Item, field_4=Unit, field_5=ContractQty
+    const [rows, jobRows, supRows] = await Promise.all([
+      spGetAll(CONFIG.lists.items,
+        "$select=Id,Title,field_1,field_2,field_3,field_4,field_5&$top=4999"),
+      spGetAll(CONFIG.lists.jobs,
+        "$select=Id,Title,field_1,field_4&$top=4999").catch(()=>[]),
+      spGetAll(CONFIG.lists.suppliers,
+        "$select=Title,SortOrder&$top=4999").catch(()=>[])
+    ]);
+    // Jobs list: Title=JobNumber, field_1=JobName, field_4=Status (Active/Closed)
+    const jobMeta = {};
+    for(const j of jobRows){
+      if(j.Title) jobMeta[String(j.Title).trim()] = { name:j.field_1||"", status:j.field_4||"Active" };
+    }
+    // group items by section (Base Contract first), then creation order
+    rows.sort((a,b)=>
+      String(a.field_2||"").localeCompare(String(b.field_2||"")) || a.Id-b.Id);
+    const byJob = {};
+    for(const r of rows){
+      if(!r.Title || !r.field_3) continue;
+      const k = String(r.Title).trim();
+      const meta = jobMeta[k];
+      if(meta && meta.status === "Closed") continue;   // hide closed jobs
+      if(!byJob[k]) byJob[k] = { jobNumber:k, jobName:(meta&&meta.name)||"", items:[] };
+      if(!byJob[k].jobName && r.field_1) byJob[k].jobName = r.field_1;
+      byJob[k].items.push({
+        name: r.field_3,
+        unit: r.field_4 || "",
+        contract: Number(r.field_5) || 0,
+        sec: r.field_2 || ""
+      });
+    }
+    jobs = Object.values(byJob).sort((a,b)=>
+      a.jobNumber.localeCompare(b.jobNumber, undefined, {numeric:true}));
+    jobsUpdated = new Date().toISOString();
+    if(supRows.length){
+      supRows.sort((a,b)=>(Number(a.SortOrder)||0)-(Number(b.SortOrder)||0));
+      SUPPLIERS = supRows.filter(x=>x.Title).map(x=>x.Title);
+    }
+    try{ localStorage.setItem(JOBCACHE_KEY, JSON.stringify({updated:jobsUpdated, jobs, suppliers:SUPPLIERS})); }catch(e){}
+    if(manual) toast(t("jobsUpdatedT"));
+    if(job){
+      const fresh = jobs.find(j=>j.jobNumber===job.jobNumber);
+      if(fresh) selectJob(fresh.jobNumber, true);
+    }
+  }catch(e){
+    if(manual) toast(t("usingSavedJobs"),"warn");
+  }
+  renderJobs();
+}
+function loadJobCache(){
+  try{
+    const raw = localStorage.getItem(JOBCACHE_KEY);
+    if(raw){
+      const c = JSON.parse(raw);
+      jobs = c.jobs||[]; jobsUpdated = c.updated||null;
+      if(Array.isArray(c.suppliers) && c.suppliers.length) SUPPLIERS = c.suppliers;
+    }
+  }catch(e){}
+}
+function renderJobs(){
+  const list=document.getElementById("jobList");
+  const upd=document.getElementById("jobsUpdated");
+  upd.textContent = jobsUpdated ? t("jobsFrom",{d:new Date(jobsUpdated).toLocaleDateString(t("locale"))}) : "";
+  if(jobs.length===0){
+    list.innerHTML = `<div class="empty">${spConfigured() ? t("noJobsYet") : t("noJobsSetup")}</div>`;
+    return;
+  }
+  list.innerHTML = jobs.map(j=>`
+    <div class="job-row" onclick="selectJob('${j.jobNumber}')">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="job-num">#${j.jobNumber}</div>
+        <div>
+          <div class="job-title">${j.jobName||"Job "+j.jobNumber}</div>
+          <div class="day-meta">${t("scopeItems",{n:j.items.length})}</div>
+        </div>
+      </div>
+      <div style="font-size:22px;color:var(--muted)">&rsaquo;</div>
+    </div>`).join("");
+}
+function selectJob(jobNumber, silent){
+  const j = jobs.find(x=>x.jobNumber===String(jobNumber));
+  if(!j) return;
+  job = j;
+  ITEMS = j.items.map(it=>({ ...it, id: slug(it.name) }));
+  try{ localStorage.setItem(LASTJOB_KEY, j.jobNumber); }catch(e){}
+  document.getElementById("hdrJob").textContent = (j.jobName||("Job "+j.jobNumber)) + " — Daily Quantities";
+  updateJobChip();
+  loadStore();
+  document.getElementById("fDate").value = todayISO();
+  loadDateIntoEntry(todayISO());
+  updateSyncChip();
+  if(!silent) showView("entry");
+}
+
+// ---------- per-job local storage ----------
+function loadStore(){
+  try{
+    const raw = localStorage.getItem(storeKey());
+    savedDays = raw ? JSON.parse(raw) : [];
+    if(!Array.isArray(savedDays)) savedDays=[];
+  }catch(e){ savedDays=[]; storageOK=false; }
+  savedDays.sort((a,b)=>b.date.localeCompare(a.date));
+}
+function persistStore(){
+  try{ localStorage.setItem(storeKey(), JSON.stringify(savedDays)); return true; }
+  catch(e){ storageOK=false; return false; }
+}
+function computeCumulative(excludeDate){
+  cumulative={};
+  for(const day of savedDays){
+    if(excludeDate && day.date===excludeDate) continue;
+    for(const [id,q] of Object.entries(day.quantities||{})){
+      cumulative[id]=(cumulative[id]||0)+Number(q||0);
+    }
+  }
+}
+
+// ---------- toggles ----------
+function toggleForming(){ setForming(!forming); }
+function setForming(v){
+  forming = !!v;
+  document.getElementById("formingToggle").classList.toggle("on", forming);
+  document.getElementById("formingBox").textContent = forming ? "\u2713" : "";
+  updateSaveBar();
+}
+function toggleExtra(){ setExtra(!extraWork); }
+function setExtra(v){
+  extraWork = !!v;
+  document.getElementById("extraToggle").classList.toggle("on", extraWork);
+  document.getElementById("extraBox").textContent = extraWork ? "\u2713" : "";
+  updateSaveBar();
+}
+
+// ---------- concrete pours ----------
+function renderPours(){
+  const wrap = document.getElementById("pourRows");
+  if(pours.length === 0) pours = [{supplier:"", cy:""}];
+  wrap.innerHTML = pours.map((p,i)=>`
+    <div class="pour-row">
+      <select onchange="setPourSupplier(${i}, this.value)">
+        <option value="" ${!p.supplier?"selected":""} disabled>${t("supplierPh")}</option>
+        ${SUPPLIERS.map(s=>`<option value="${s}" ${p.supplier===s?"selected":""}>${s}</option>`).join("")}
+      </select>
+      <div class="cy-hint">
+        <input class="pour-cy" inputmode="decimal" placeholder="0.0" value="${p.cy}"
+               oninput="setPourCY(${i}, this)" onblur="tidyPourCY(${i}, this)">
+      </div>
+      <button class="pour-remove" onclick="removePour(${i})" ${pours.length===1 && !p.supplier && !p.cy ? "disabled style='opacity:.3'" : ""}>&times;</button>
+    </div>`).join("");
+}
+function setPourSupplier(i, v){ pours[i].supplier = v; updateSaveBar(); }
+function setPourCY(i, el){
+  let v = el.value.replace(/[^0-9.]/g,"");
+  const parts = v.split(".");
+  if(parts.length > 2) v = parts[0] + "." + parts.slice(1).join("");
+  const [whole, dec] = v.split(".");
+  if(dec !== undefined) v = whole + "." + dec.slice(0,1);
+  el.value = v;
+  pours[i].cy = v;
+  updateSaveBar();
+}
+function tidyPourCY(i, el){
+  const n = parseFloat(el.value);
+  if(isNaN(n) || n <= 0){ el.value=""; pours[i].cy=""; }
+  else { const r = (Math.round(n*10)/10).toString(); el.value=r; pours[i].cy=r; }
+  updateSaveBar();
+}
+function addPour(){ pours.push({supplier:"", cy:""}); renderPours(); }
+function removePour(i){
+  pours.splice(i,1);
+  if(pours.length===0) pours=[{supplier:"", cy:""}];
+  renderPours(); updateSaveBar();
+}
+function validPours(){ return pours.filter(p => p.supplier && parseFloat(p.cy) > 0); }
+
+// ---------- central upload (row labels always English) ----------
+function buildPayload(day){
+  return {
+    recordKey: job.jobNumber + "|" + day.date + "|" + deviceId(),
+    jobName: job.jobName, jobNumber: job.jobNumber,
+    date: day.date, foreman: day.foreman||"", notes: day.notes||"",
+    rows: (day.forming ? [{item: FORMING_ITEM, qty: "", unit: ""}] : [])
+          .concat(day.extra ? [{item: EXTRA_ITEM, qty: "", unit: ""}] : [])
+          .concat((day.pours||[]).map(p=>({item:"CONCRETE POURED — "+p.supplier, qty:p.cy, unit:"CY"})))
+          .concat(ITEMS.filter(it=>day.quantities&&day.quantities[it.id])
+                       .map(it=>({item:it.name, qty:day.quantities[it.id], unit:it.unit})))
+  };
+}
+async function uploadDay(day){
+  if(!spConfigured()) return false;
+  try{
+    const payload = buildPayload(day);
+    // 1) Remove any rows already uploaded for this recordKey (replace-in-place)
+    const existing = await spGetAll(CONFIG.lists.daily,
+      "$select=Id&$filter=RecordKey eq '" + spQuote(payload.recordKey) + "'&$top=4999");
+    for(const r of existing) await spRecycle(CONFIG.lists.daily, r.Id);
+    // 2) Insert one list item per reported row.
+    //    DailyQuantities columns: Title=Item, JobName, JobNumber, WorkDate,
+    //    Foreman, Quantity, Unit, Notes, RecordKey, DeviceId
+    for(const row of payload.rows){
+      const fields = {
+        Title: row.item,
+        JobNumber: payload.jobNumber,
+        JobName: payload.jobName || "",
+        WorkDate: payload.date + "T12:00:00Z",   // noon UTC keeps the date stable
+        Foreman: payload.foreman || "",
+        Unit: row.unit || "",
+        Notes: payload.notes || "",
+        RecordKey: payload.recordKey,
+        DeviceId: deviceId()
+      };
+      if(row.qty !== "" && row.qty != null && !isNaN(Number(row.qty)))
+        fields.Quantity = Number(row.qty);
+      await spCreate(CONFIG.lists.daily, fields);
+    }
+    // 3) Extra work flagged -> make sure a "Needs info" row exists in the CO log.
+    //    ChangeOrderLog internal names: Title=JobName, field_1=JobNumber,
+    //    field_2=WorkDate, field_3=Foreman, field_4=Status,
+    //    field_5=DescriptionOfExtraWork, field_11=RecordKey
+    if(day.extra){
+      try{
+        const co = await spGetAll(CONFIG.lists.co,
+          "$select=Id&$filter=field_11 eq '" + spQuote(payload.recordKey) + "'&$top=1");
+        if(co.length === 0){
+          await spCreate(CONFIG.lists.co, {
+            Title: payload.jobName || ("Job " + payload.jobNumber),
+            field_1: payload.jobNumber,
+            field_2: payload.date + "T12:00:00Z",
+            field_3: payload.foreman || "",
+            field_4: "Needs info",
+            field_5: payload.notes ? ("Field notes: " + payload.notes) : "",
+            field_11: payload.recordKey
+          });
+        }
+      }catch(e){ /* CO log entry is best-effort; daily rows are already saved */ }
+    }
+    return true;
+  }catch(e){ return false; }
+}
+async function syncQueue(manual){
+  if(syncing || !job) { if(manual&&!job) toast(t("pickJobFirst"),"warn"); return; }
+  const pending = savedDays.filter(d=>!d.synced);
+  if(pending.length===0){ updateSyncChip(); if(manual) toast(t("everythingUp")); return; }
+  if(!spConfigured()){ updateSyncChip(); if(manual) toast(t("addUrlFirst"),"err"); return; }
+  syncing=true;
+  document.getElementById("syncLabel").textContent=t("uploadingLbl");
+  let done=0;
+  for(const day of pending){
+    const ok = await uploadDay(day);
+    if(ok){ day.synced=true; day.syncedAt=new Date().toISOString(); done++; persistStore(); }
+    else break;
+  }
+  syncing=false;
+  updateSyncChip();
+  if(!document.getElementById("viewHistory").classList.contains("hidden")) renderHistory();
+  if(done>0) toast(t("daysUploaded",{n:done}));
+  else if(manual) toast(t("cantReach"),"warn");
+}
+function updateSyncChip(){
+  const chip=document.getElementById("syncChip"), label=document.getElementById("syncLabel");
+  chip.classList.remove("pending","offline");
+  if(!spConfigured()){ chip.classList.add("offline"); label.textContent=t("setupNeeded"); return; }
+  const pending = job ? savedDays.filter(d=>!d.synced).length : 0;
+  if(pending===0){ label.textContent=t("allUploaded"); }
+  else if(navigator.onLine){ chip.classList.add("pending"); label.textContent=t("waitingTap",{n:pending}); }
+  else{ chip.classList.add("offline"); label.textContent=t("queuedOffline",{n:pending}); }
+}
+
+// ---------- entry ----------
+function renderItems(){
+  const list=document.getElementById("itemList");
+  const filter=document.getElementById("fFilter").value.trim().toLowerCase();
+  computeCumulative(document.getElementById("fDate").value);
+  let html="",lastSec="";
+  for(const it of ITEMS){
+    if(filter && !it.name.toLowerCase().includes(filter)) continue;
+    if(it.sec!==lastSec){
+      html+=`<div class="section-head"><h2>${it.sec}</h2><div class="rule"></div><span class="unit-chip">${it.unit}</span></div>`;
+      lastSec=it.sec;
+    }
+    const done=cumulative[it.id]||0, draft=entered[it.id];
+    const total=done+(Number(draft)||0);
+    const pct=it.contract?Math.min(100,(total/it.contract)*100):0, over=it.contract&&total>it.contract;
+    html+=`
+      <div class="item ${draft?"has-qty":""}" id="row_${it.id}">
+        <div>
+          <div class="item-name">${it.name}</div>
+          <div class="item-sub">${t("toDate",{t:fmt(total),c:fmt(it.contract),u:it.unit,r:fmt(Math.max(0,it.contract-total))})}</div>
+          <div class="bar"><span class="${over?"over":""}" style="width:${pct}%"></span></div>
+        </div>
+        <div class="qty-wrap">
+          <span class="qty-unit">${it.unit}</span>
+          <input class="qty" inputmode="decimal" placeholder="0" value="${draft!==undefined?draft:""}" oninput="setQty('${it.id}',this.value)">
+        </div>
+      </div>`;
+  }
+  list.innerHTML=html||`<div class="empty">${t("noMatch")}</div>`;
+  updateSaveBar();
+}
+function setQty(id,val){
+  const n=parseFloat(val);
+  if(val===""||isNaN(n)||n<=0){delete entered[id];}else{entered[id]=n;}
+  const row=document.getElementById("row_"+id);
+  if(row) row.classList.toggle("has-qty",entered[id]!==undefined);
+  updateSaveBar();
+}
+function updateSaveBar(){
+  const count=Object.keys(entered).length;
+  const nPours=validPours().length;
+  const btn=document.getElementById("btnSave"), sum=document.getElementById("saveSummary");
+  const date=document.getElementById("fDate").value;
+  if(count===0 && !forming && nPours===0 && !extraWork){ sum.innerHTML=t("noQty"); btn.disabled=true; }
+  else{
+    const parts=[];
+    if(count>0) parts.push(t("nItems",{n:count}));
+    if(nPours>0){
+      const cy = validPours().reduce((tt,p)=>tt+parseFloat(p.cy),0);
+      parts.push(t("cyPoured",{x:Math.round(cy*10)/10}));
+    }
+    if(forming) parts.push(t("formingDay"));
+    if(extraWork) parts.push(t("extraWorkLbl"));
+    sum.innerHTML=`${parts.join(" + ")} ${t("forWord")} <b>${prettyDate(date)}</b> · #${job.jobNumber}`;
+    btn.disabled=false;
+  }
+}
+async function saveDay(){
+  const date=document.getElementById("fDate").value;
+  if(!date){toast(t("pickDate"),"err");return;}
+  const goodPours=validPours();
+  const halfDone=pours.some(p=>(p.supplier&&!(parseFloat(p.cy)>0))||(!p.supplier&&parseFloat(p.cy)>0));
+  if(halfDone){toast(t("finishPour"),"err");return;}
+  if(Object.keys(entered).length===0 && !forming && goodPours.length===0 && !extraWork){toast(t("enterSomething"),"err");return;}
+  const record={
+    date,
+    foreman:document.getElementById("fForeman").value.trim(),
+    notes:document.getElementById("fNotes").value.trim(),
+    quantities:{...entered},
+    pours:goodPours.map(p=>({supplier:p.supplier, cy:(Math.round(parseFloat(p.cy)*10)/10)})),
+    forming: forming,
+    extra: extraWork,
+    savedAt:new Date().toISOString(),
+    synced:false
+  };
+  const idx=savedDays.findIndex(d=>d.date===date);
+  if(idx>=0){
+    if(!confirm(t("alreadySaved",{d:prettyDate(date)}))) return;
+    savedDays[idx]=record;
+  } else savedDays.push(record);
+  savedDays.sort((a,b)=>b.date.localeCompare(a.date));
+  if(!persistStore()){ toast(t("cantSave"),"err"); checkEnvironment(); return; }
+  entered={};
+  document.getElementById("fNotes").value="";
+  setForming(false);
+  setExtra(false);
+  pours=[{supplier:"",cy:""}];
+  renderPours();
+  renderItems();
+  toast(t("savedUploading"));
+  await syncQueue(false);
+}
+function loadDateIntoEntry(date){
+  const day=savedDays.find(d=>d.date===date);
+  document.getElementById("fDate").value=date;
+  if(day){
+    entered={...day.quantities};
+    document.getElementById("fForeman").value=day.foreman||"";
+    document.getElementById("fNotes").value=day.notes||"";
+    setForming(!!day.forming);
+    setExtra(!!day.extra);
+    pours=(day.pours&&day.pours.length)?day.pours.map(p=>({supplier:p.supplier,cy:String(p.cy)})):[{supplier:"",cy:""}];
+  } else {
+    entered={};
+    document.getElementById("fNotes").value="";
+    setForming(false);
+    setExtra(false);
+    pours=[{supplier:"",cy:""}];
+  }
+  renderPours();
+  renderItems();
+}
+
+// ---------- history ----------
+function renderHistory(){
+  const list=document.getElementById("historyList");
+  if(savedDays.length===0){
+    list.innerHTML=`<div class="empty">${t("noSavedDays")}</div>`;
+    return;
+  }
+  list.innerHTML=savedDays.map(d=>{
+    const n=Object.keys(d.quantities||{}).length;
+    const tag=d.synced?`<span class="sync-tag up">${t("tagUp")}</span>`:`<span class="sync-tag wait">${t("tagWait")}</span>`;
+    const formTag=d.forming?`<span class="sync-tag form">${t("tagForming")}</span>`:"";
+    const extraTag=d.extra?`<span class="sync-tag extra">${t("tagExtra")}</span>`:"";
+    const cy=(d.pours||[]).reduce((tt,p)=>tt+Number(p.cy||0),0);
+    const bits=[];
+    if(n>0) bits.push(t("itemsReported",{n:n}));
+    if(cy>0) bits.push(t("cyShort",{x:Math.round(cy*10)/10}));
+    if(d.forming) bits.push(t("formingShort"));
+    if(d.extra) bits.push(t("extraShort"));
+    const meta = bits.length ? bits.join(" · ") : t("noQtyShort");
+    return `<div class="day-row" onclick="openDetail('${d.date}')">
+      <div>
+        <div class="day-date">${prettyDate(d.date)}</div>
+        <div class="day-meta">${d.foreman?d.foreman+" · ":""}${meta}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">${extraTag}${formTag}${tag}<span style="font-size:22px;color:var(--muted)">&rsaquo;</span></div>
+    </div>`;
+  }).join("");
+}
+function openDetail(date){
+  const d=savedDays.find(x=>x.date===date);
+  if(!d) return;
+  const rows=ITEMS.filter(it=>d.quantities&&d.quantities[it.id])
+    .map(it=>`<tr><td>${it.name}</td><td class="num">${fmt(d.quantities[it.id])}</td><td>${it.unit}</td></tr>`).join("");
+  document.getElementById("detailBody").innerHTML=`
+    <div class="card">
+      <div class="day-date" style="font-size:19px">${prettyDate(d.date)} · #${job.jobNumber}</div>
+      <div class="day-meta" style="margin-bottom:10px">
+        ${d.foreman?t("foremanPre")+d.foreman:t("noForeman")}
+        &middot; ${d.synced?t("upToSheet"):t("notUp")}
+        ${d.forming?" &middot; "+t("formingDetail"):""}
+        ${d.extra?" &middot; "+t("extraDetail"):""}
+      </div>
+      ${d.notes?`<div class="note-block">${d.notes.replace(/</g,"&lt;")}</div>`:""}
+      <table class="progress-table" style="margin-top:12px">
+        <thead><tr><th>${t("thItem")}</th><th class="num">${t("thQty")}</th><th>${t("thUnit")}</th></tr></thead>
+        <tbody>${(d.forming?`<tr><td>${FORMING_ITEM}</td><td class="num">—</td><td>—</td></tr>`:"")
+          +(d.extra?`<tr><td>${EXTRA_ITEM}</td><td class="num">—</td><td>—</td></tr>`:"")
+          +(d.pours||[]).map(p=>`<tr><td>CONCRETE POURED — ${p.supplier}</td><td class="num">${fmt(p.cy)}</td><td>CY</td></tr>`).join("")
+          +rows||`<tr><td colspan=3>${t("noQtySheet")}</td></tr>`}</tbody>
+      </table>
+      <div class="tools">
+        <button class="btn-small" onclick="editDay('${d.date}')">${t("editDay")}</button>
+        <button class="btn-danger" onclick="deleteDay('${d.date}')">${t("delDay")}</button>
+      </div>
+    </div>`;
+  showView("detail");
+}
+function editDay(date){ loadDateIntoEntry(date); showView("entry"); }
+async function deleteDay(date){
+  const d=savedDays.find(x=>x.date===date);
+  if(!d) return;
+  if(!confirm(t("confirmDel",{d:prettyDate(date)}))) return;
+  if(d.synced && spConfigured()){
+    const ok = await uploadDay({date:d.date, foreman:d.foreman, notes:d.notes, quantities:{}});
+    if(!ok) toast(t("delWarn"),"warn");
+  }
+  savedDays=savedDays.filter(x=>x.date!==date);
+  persistStore(); renderHistory(); showView("history"); updateSyncChip();
+  toast(t("deleted",{d:prettyDate(date)}));
+}
+
+// ---------- progress ----------
+// Pulls COMBINED totals (all tablets) straight from the Daily Quantities
+// SharePoint list. Falls back to this tablet's saved days when offline.
+let progressSeq = 0;
+async function renderProgress(){
+  const body=document.getElementById("progressBody");
+  const seq=++progressSeq;
+  body.innerHTML=`<div class="empty">${t("progressLoading")}</div>`;
+  let office=null, officeUpdated=null;
+  if(spConfigured() && navigator.onLine){
+    try{
+      const rows = await spGetAll(CONFIG.lists.daily,
+        "$select=Title,Quantity&$filter=JobNumber eq '" + spQuote(job.jobNumber) + "'&$top=4999");
+      const totalsByName = {};
+      for(const r of rows){
+        if(!r.Title) continue;
+        totalsByName[r.Title] = (totalsByName[r.Title]||0) + (Number(r.Quantity)||0);
+      }
+      office = totalsByName; officeUpdated = new Date().toISOString();
+    }catch(e){}
+  }
+  if(seq!==progressSeq || currentView!=="progress") return; // stale response / view changed
+  let note;
+  const totals={};
+  if(office){
+    note=t("progressOffice",{n:job.jobNumber,d:officeUpdated?new Date(officeUpdated).toLocaleString(t("locale")):""});
+    for(const it of ITEMS) totals[it.id]=Number(office[it.name])||0;
+  } else {
+    computeCumulative();
+    note=t("progressLocal",{n:job.jobNumber});
+    for(const it of ITEMS) totals[it.id]=cumulative[it.id]||0;
+  }
+  const rows=ITEMS.map(it=>{
+    const done=totals[it.id]||0;
+    const pct=it.contract?(done/it.contract)*100:0;
+    return `<tr><td>${it.name}</td><td class="num">${fmt(done)}</td><td class="num">${fmt(it.contract)}</td><td>${it.unit}</td><td class="num pct ${pct>=100?"done":""}">${pct.toFixed(1)}%</td></tr>`;
+  }).join("");
+  body.innerHTML=`
+    <div class="day-meta" style="margin-bottom:8px">${note}</div>
+    <table class="progress-table">
+      <thead><tr><th>${t("thItem")}</th><th class="num">${t("thToDate")}</th><th class="num">${t("thContract")}</th><th>${t("thUnit")}</th><th class="num">${t("thPct")}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// ---------- export / backup (CSV row labels always English) ----------
+function downloadFile(name,mime,content){
+  const blob=new Blob([content],{type:mime});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  URL.revokeObjectURL(a.href);
+}
+const esc=s=>`"${String(s||"").replace(/"/g,'""')}"`;
+function exportCSV(){
+  if(savedDays.length===0){toast(t("nothingExport"),"err");return;}
+  const lines=["Job,Job Number,Date,Foreman,Item,Quantity,Unit,Notes"];
+  for(const d of [...savedDays].sort((a,b)=>a.date.localeCompare(b.date))){
+    if(d.forming) lines.push([esc(job.jobName),job.jobNumber,d.date,esc(d.foreman),esc(FORMING_ITEM),"","",esc(d.notes)].join(","));
+    if(d.extra) lines.push([esc(job.jobName),job.jobNumber,d.date,esc(d.foreman),esc(EXTRA_ITEM),"","",esc(d.notes)].join(","));
+    for(const p of (d.pours||[])) lines.push([esc(job.jobName),job.jobNumber,d.date,esc(d.foreman),esc("CONCRETE POURED — "+p.supplier),p.cy,"CY",esc(d.notes)].join(","));
+    for(const it of ITEMS){
+      const q=d.quantities&&d.quantities[it.id];
+      if(q) lines.push([esc(job.jobName),job.jobNumber,d.date,esc(d.foreman),esc(it.name),q,it.unit,esc(d.notes)].join(","));
+    }
+  }
+  downloadFile("Job"+job.jobNumber+"_DailyQuantities.csv","text/csv",lines.join("\n"));
+}
+function exportBackup(){
+  downloadFile("Job"+job.jobNumber+"_Backup_"+todayISO()+".json","application/json",
+    JSON.stringify({project:job.jobName, jobNumber:job.jobNumber, exported:new Date().toISOString(), days:savedDays},null,1));
+  toast(t("backupDl"));
+}
+function restoreBackup(input){
+  const file=input.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const data=JSON.parse(reader.result);
+      if(!data.days||!Array.isArray(data.days)) throw new Error("bad format");
+      if(data.jobNumber && data.jobNumber!==job.jobNumber &&
+         !confirm(t("backupWrongJob",{a:data.jobNumber,b:job.jobNumber}))) { input.value=""; return; }
+      let added=0;
+      for(const day of data.days){
+        if(!day.date) continue;
+        const idx=savedDays.findIndex(d=>d.date===day.date);
+        if(idx>=0) savedDays[idx]=day; else savedDays.push(day);
+        added++;
+      }
+      savedDays.sort((a,b)=>b.date.localeCompare(a.date));
+      persistStore(); renderHistory(); updateSyncChip();
+      toast(t("restored",{n:added}));
+    }catch(e){ toast(t("badBackup"),"err"); }
+    input.value="";
+  };
+  reader.readAsText(file);
+}
+
+// ---------- views ----------
+function showView(v){
+  currentView = v;
+  for(const name of ["Jobs","Entry","History","Detail","Progress"]){
+    document.getElementById("view"+name).classList.toggle("hidden",name.toLowerCase()!==v);
+  }
+  const hasJob = !!job;
+  document.getElementById("mainTabs").style.display = hasJob ? "flex" : "none";
+  document.getElementById("tabEntry").classList.toggle("active",v==="entry");
+  document.getElementById("tabHistory").classList.toggle("active",v==="history");
+  document.getElementById("tabProgress").classList.toggle("active",v==="progress");
+  document.getElementById("savebar").classList.toggle("hidden", v!=="entry");
+  if(v==="jobs") renderJobs();
+  if(v==="history") renderHistory();
+  if(v==="progress") renderProgress();
+}
+
+// ---------- init ----------
+(async function init(){
+  try{ lang = localStorage.getItem(LANG_KEY) || "en"; }catch(e){ lang = "en"; }
+  if(!I18N[lang]) lang = "en";
+  document.getElementById("langSelect").value = lang;
+  document.documentElement.lang = lang;
+  applyStatic();
+  checkEnvironment();
+  loadJobCache();
+  const last = (()=>{try{return localStorage.getItem(LASTJOB_KEY);}catch(e){return null;}})();
+  document.getElementById("fDate").addEventListener("change",e=>loadDateIntoEntry(e.target.value));
+  window.addEventListener("online",()=>syncQueue(false));
+  window.addEventListener("offline",updateSyncChip);
+  updateJobChip();
+
+  if(last && jobs.some(j=>j.jobNumber===last)){
+    selectJob(last, true);
+    showView("entry");
+  } else {
+    showView("jobs");
+    renderPours();
+  }
+  updateSyncChip();
+  refreshJobs(false);
+  syncQueue(false);
+})();
+</script>
+<script>
+// Offline support when hosted as a website (GitHub Pages): cache this page
+// on the tablet so it still opens with no signal. Saved days already queue
+// locally and sync when back online.
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(function(){});
+}
+</script>
+</body>
+</html>

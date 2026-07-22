@@ -133,11 +133,14 @@ const CONFIG = {
   apiKey: "Princeton",
   lists: { items: "JobItems", daily: "DailyQuantities", co: "ChangeOrderLog", jobs: "Jobs", clients: "Clients" },
   map: {
-    jobsClient: null,   // Jobs list column holding the client (name or customer #)
-    jobsAddress: null,  // Jobs list column holding the site address
-    jobsCity: null,     // Jobs list column holding city/state
-    clientsKey: null,   // Clients list column that matches the Jobs client value
-    clientsName: null   // Clients list column holding the client display name
+    // Pinned to the real list schemas (verified 7/22/26 from list exports):
+    // Jobs: Title=JobNumber, field_1=JobName, field_2=Client (name), field_3=Address, field_4=Status
+    // Clients: Title=Name, AddressBlock=print block (not used by this report)
+    jobsClient: "field_2",  // Jobs list column holding the client name
+    jobsAddress: "field_3", // Jobs list column holding the site address
+    jobsCity: null,         // (address column already includes city/state)
+    clientsKey: "Title",    // Clients list column that matches the Jobs client value
+    clientsName: "Title"    // Clients list column holding the client display name
   }
 };
 
